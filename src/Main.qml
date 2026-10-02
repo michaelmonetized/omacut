@@ -287,6 +287,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Q"
         context: Qt.ApplicationShortcut
+        enabled: !dropConfirm.visible
         onActivated: {
             if (!win.quitConfirmVisible)
                 requestQuit();
@@ -296,6 +297,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "?"
         context: Qt.ApplicationShortcut
+        enabled: !dropConfirm.visible
         onActivated: {
             if (!win.quitConfirmVisible)
                 win.helpVisible = !win.helpVisible;
@@ -305,6 +307,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
+        enabled: !dropConfirm.visible
         onActivated: {
             if (win.quitConfirmVisible)
                 win.quitConfirmVisible = false;

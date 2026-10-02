@@ -205,6 +205,8 @@ private slots:
     void qmlZoomFocusesTheClip();
     void qmlAcceptsNativeFileDrops();
     void qmlDropProtectsUnexportedEdits();
+    void qmlDropConfirmationOwnsKeyboard_data();
+    void qmlDropConfirmationOwnsKeyboard();
     void qmlQuitConfirmsUnexportedEdit();
     void timelineSplitsTrimsAndJoins();
     void timelineUndoesAGestureAsOneStep();
@@ -1279,6 +1281,41 @@ void BackendTests::qmlDropProtectsUnexportedEdits() {
     QVERIFY(QMetaObject::invokeMethod(confirm, "accept"));
     QCOMPARE(backend.source(), QUrl::fromLocalFile(other));
     QVERIFY(!backend.timeline()->unexported());
+}
+
+void BackendTests::qmlDropConfirmationOwnsKeyboard_data() {
+    QTest::addColumn<int>("key");
+    QTest::newRow("escape") << int(Qt::Key_Escape);
+    QTest::newRow("quit") << int(Qt::Key_Q);
+    QTest::newRow("help") << int(Qt::Key_Question);
+}
+
+void BackendTests::qmlDropConfirmationOwnsKeyboard() {
+    QFETCH(int, key);
+    ThumbProvider provider;
+    Backend backend(&provider, new FakeFilePicker);
+    QVERIFY(backend.load(videoUrl()));
+    backend.timeline()->trimTo(0.25, true);
+    const auto originalClips = backend.timeline()->clips();
+    QmlHarness harness(backend);
+    auto *window = harness.window();
+    QVERIFY(window);
+    window->requestActivate();
+    QTest::qWait(100);
+    QVERIFY(dropUrls(window, {videoUrl()}));
+    auto *confirm = window->findChild<QObject *>(QStringLiteral("dropConfirm"));
+    QVERIFY(confirm);
+    QVERIFY(confirm->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key(key));
+    if (key == Qt::Key_Escape) {
+        QTRY_VERIFY(!confirm->property("visible").toBool());
+        QVERIFY(window->property("pendingDropUrl").toUrl().isEmpty());
+    } else {
+        QVERIFY(confirm->property("visible").toBool());
+    }
+    QVERIFY(!window->property("quitConfirmVisible").toBool());
+    QVERIFY(!window->property("helpVisible").toBool());
+    QCOMPARE(backend.timeline()->clips(), originalClips);
 }
 
 QTEST_MAIN(BackendTests)
