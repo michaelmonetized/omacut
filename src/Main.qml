@@ -20,8 +20,8 @@ ApplicationWindow {
     property var audioOutput: null
     property string noticeText: ""
     property bool helpVisible: false
-    property bool quitConfirmVisible: false
     property url pendingDropUrl: ""
+    property bool quitConfirmVisible: false
     readonly property string statusText: noticeText !== "" ? noticeText : backend.status
 
     readonly property var timeline: backend.timeline
