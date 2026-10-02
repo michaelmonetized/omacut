@@ -1,6 +1,10 @@
 #include <QtTest>
 
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -153,7 +157,7 @@ static QString mainQmlPath() {
 // as the window is in use, so each shortcut test is just the key presses.
 class QmlHarness {
 public:
-    explicit QmlHarness(ShortcutBackend &backend) {
+    explicit QmlHarness(QObject &backend) {
         m_engine.addImageProvider(QStringLiteral("thumbs"), new ThumbProvider);
         m_engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
         m_engine.load(QUrl::fromLocalFile(mainQmlPath()));
@@ -179,6 +183,8 @@ private slots:
     void initTestCase();
     void openDialogDelegatesToFilePicker();
     void pickerSelectionLoadsVideo();
+    void qmlAcceptsNativeFileDrops();
+    void qmlDropProtectsUnexportedEdits();
     void thumbnailSlotsAreExposedImmediately();
     void thumbProviderUsesRevisionPrefixedIds();
     void thumbProviderScalesHeightOnlyRequests();
@@ -283,6 +289,72 @@ void BackendTests::openDialogDelegatesToFilePicker() {
     backend.openVideoDialog();
 
     QCOMPARE(picker->openCount, 2);
+}
+
+static bool dropUrls(QQuickWindow *window, const QList<QUrl> &urls) {
+    QMimeData mime;
+    mime.setUrls(urls);
+    const QPoint point(window->width() / 2, window->height() / 3);
+    QDragEnterEvent enter(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &enter);
+    if (!enter.isAccepted()) {
+        QDragLeaveEvent leave;
+        QCoreApplication::sendEvent(window, &leave);
+        return false;
+    }
+    QDropEvent drop(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(window, &drop);
+    const bool accepted = drop.isAccepted();
+    QDragLeaveEvent leave;
+    QCoreApplication::sendEvent(window, &leave);
+    return accepted;
+}
+
+void BackendTests::qmlAcceptsNativeFileDrops() {
+    ThumbProvider provider;
+    Backend backend(&provider, new FakeFilePicker);
+    QSignalSpy errors(&backend, &Backend::loadError);
+    QmlHarness harness(backend);
+    auto *window = harness.window();
+    QVERIFY(window);
+    QTest::qWait(100);
+    QVERIFY(dropUrls(window, {videoUrl()}));
+    QCOMPARE(backend.source(), videoUrl());
+    QVERIFY(dropUrls(window, {videoUrl()}));
+    QVERIFY(!dropUrls(window, {videoUrl(), videoUrl()}));
+    QCOMPARE(window->property("noticeText").toString(), QStringLiteral("Drop one video at a time."));
+    QVERIFY(!dropUrls(window, {QUrl(QStringLiteral("https://example.com/video.mp4"))}));
+    QVERIFY(!dropUrls(window, {QUrl::fromLocalFile(m_dir.filePath(QStringLiteral("missing.mp4")))}));
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(backend.source(), videoUrl());
+    QVERIFY(!backend.timeline()->unexported());
+}
+
+void BackendTests::qmlDropProtectsUnexportedEdits() {
+    const QString other = makeVideo(QStringLiteral("dropped #2 with spaces.mp4"), 2.0, false);
+    QVERIFY(!other.isEmpty());
+    ThumbProvider provider;
+    Backend backend(&provider, new FakeFilePicker);
+    QVERIFY(backend.load(videoUrl()));
+    backend.timeline()->trimTo(0.25, true);
+    const auto originalClips = backend.timeline()->clips();
+    QmlHarness harness(backend);
+    auto *window = harness.window();
+    QVERIFY(window);
+    QTest::qWait(100);
+    QVERIFY(dropUrls(window, {QUrl::fromLocalFile(other)}));
+    auto *confirm = window->findChild<QObject *>(QStringLiteral("dropConfirm"));
+    QVERIFY(confirm);
+    QVERIFY(confirm->property("visible").toBool());
+    QCOMPARE(backend.source(), videoUrl());
+    QCOMPARE(backend.timeline()->clips(), originalClips);
+    QVERIFY(QMetaObject::invokeMethod(confirm, "reject"));
+    QTRY_VERIFY(!confirm->property("visible").toBool());
+    QCOMPARE(backend.source(), videoUrl());
+    QVERIFY(dropUrls(window, {QUrl::fromLocalFile(other)}));
+    QVERIFY(QMetaObject::invokeMethod(confirm, "accept"));
+    QCOMPARE(backend.source(), QUrl::fromLocalFile(other));
+    QVERIFY(!backend.timeline()->unexported());
 }
 
 void BackendTests::pickerSelectionLoadsVideo() {
