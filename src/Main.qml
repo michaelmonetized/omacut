@@ -21,15 +21,7 @@ ApplicationWindow {
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
-    // Prefer live backend status while busy so a lingering notice can't hide
-    // export progress. Notices still win on the empty screen (load errors).
-    readonly property string statusText: {
-        if (backend.busy && backend.status !== "")
-            return backend.status
-        if (noticeText !== "")
-            return noticeText
-        return backend.status
-    }
+    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
 
     readonly property var timeline: backend.timeline
     // Quitting only warns about unexported cuts. Clips spanning the whole
