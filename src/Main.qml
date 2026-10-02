@@ -18,7 +18,9 @@ ApplicationWindow {
     readonly property color accentForeground: backend.themeAccentForeground
     readonly property bool audioOutputReady: audioOutput !== null
     property var audioOutput: null
-    property string noticeText: ""
+    property string transientNoticeText: ""
+    property string loadErrorText: ""
+    readonly property string noticeText: loadErrorText !== "" ? loadErrorText : transientNoticeText
     property bool helpVisible: false
     property bool quitConfirmVisible: false
     readonly property string statusText: noticeText !== "" ? noticeText : backend.status
@@ -39,12 +41,13 @@ ApplicationWindow {
         return s === "" ? "" : decodeURIComponent(s.substring(s.lastIndexOf('/') + 1));
     }
     function showNotice(text) {
-        noticeText = text;
+        transientNoticeText = text;
         noticeTimer.restart();
     }
     function showLoadError(message) {
         noticeTimer.stop();
-        noticeText = "Cannot open video: " + message;
+        transientNoticeText = "";
+        loadErrorText = "Cannot open video: " + message;
     }
     function openVideo() {
         backend.openVideoDialog();
@@ -385,7 +388,7 @@ ApplicationWindow {
         id: noticeTimer
         interval: 5000
         repeat: false
-        onTriggered: win.noticeText = ""
+        onTriggered: win.transientNoticeText = ""
     }
 
     component DialogButton: Rectangle {
@@ -839,7 +842,8 @@ ApplicationWindow {
     Connections {
         target: backend
         function onInfoChanged() {
-            win.noticeText = "";
+            win.loadErrorText = "";
+            win.transientNoticeText = "";
             noticeTimer.stop();
             // Reset priming too, or a video opened mid-prime would stay black:
             // startPriming() bails while priming is still true.

@@ -321,6 +321,10 @@ void BackendTests::qmlLoadErrorStaysVisibleUntilSuccessfulOpen() {
     emit backend.loadError(QStringLiteral("Missing video"));
     QCOMPARE(window->property("noticeText").toString(),
              QStringLiteral("Cannot open video: Missing video"));
+    emit backend.exportDone(QStringLiteral("/tmp/saved.mp4"));
+    emit backend.exportFailed(QStringLiteral("Another export failed"));
+    QCOMPARE(window->property("noticeText").toString(),
+             QStringLiteral("Cannot open video: Missing video"));
     QTest::qWait(5500);
     QVERIFY(!window->property("noticeText").toString().isEmpty());
     backend.announceInfo();
