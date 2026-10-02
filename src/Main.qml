@@ -21,6 +21,7 @@ ApplicationWindow {
     property bool exportsExpanded: true
     property string noticeText: ""
     property bool helpVisible: false
+    property url pendingDropUrl: ""
     property bool quitConfirmVisible: false
     // Prefer live backend status while busy so a lingering notice can't hide
     // export progress. Notices still win on the empty screen (load errors).
@@ -37,7 +38,7 @@ ApplicationWindow {
     // require confirmation before quitting, since closing cancels the queue.
     readonly property bool unexported: hasVideo && timeline.unexported
     // Editing shortcuts go quiet while a dialog is up or a handle is dragged.
-    readonly property bool editing: hasVideo && backend.duration > 0 && !quitConfirmVisible && !editBar.interacting
+    readonly property bool editing: hasVideo && backend.duration > 0 && !quitConfirmVisible && !dropConfirm.visible && !editBar.interacting
 
     Material.theme: Material.Dark
     Material.accent: win.accent
@@ -57,6 +58,14 @@ ApplicationWindow {
     }
     function openVideo() {
         backend.openVideoDialog();
+    }
+    function openDroppedVideo(url) {
+        if (unexported) {
+            pendingDropUrl = url;
+            dropConfirm.open();
+            return true;
+        }
+        return backend.load(url);
     }
     function exportVideo() {
         if (!win.hasVideo || backend.duration <= 0)
@@ -149,7 +158,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Space"
         context: Qt.ApplicationShortcut
-        enabled: win.hasVideo && !win.quitConfirmVisible
+        enabled: win.hasVideo && !win.quitConfirmVisible && !dropConfirm.visible
         onActivated: togglePlay()
     }
 
@@ -274,6 +283,8 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         enabled: win.hasVideo && backend.duration > 0
         onActivated: {
+            if (dropConfirm.visible)
+                return;
             win.quitConfirmVisible = false;
             exportVideo();
         }
@@ -282,7 +293,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+O"
         context: Qt.ApplicationShortcut
-        enabled: !win.quitConfirmVisible
+        enabled: !win.quitConfirmVisible && !dropConfirm.visible
         onActivated: openVideo()
     }
 
@@ -731,6 +742,60 @@ ApplicationWindow {
                 font.family: "monospace"
             }
         }
+    }
+
+    DropArea {
+        id: videoDropArea
+        objectName: "videoDropArea"
+        anchors.fill: parent
+        z: 5
+        enabled: !win.quitConfirmVisible && !win.helpVisible && !dropConfirm.visible
+        onEntered: (drag) => {
+            drag.accepted = drag.hasUrls && drag.urls.length > 0
+                && drag.urls.every((url) => url.toString().toLowerCase().indexOf("file:") === 0);
+        }
+        onDropped: (drop) => {
+            if (drop.urls.length !== 1) {
+                win.showNotice("Drop one video at a time.");
+                return;
+            }
+            if (win.openDroppedVideo(drop.urls[0]))
+                drop.accept(Qt.CopyAction);
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 8
+            visible: videoDropArea.containsDrag
+            color: "#cc0e0e10"
+            border.color: win.accent
+            border.width: 2
+            radius: 12
+            Label {
+                anchors.centerIn: parent
+                text: "Drop a video to open it"
+                font.pixelSize: 20
+                color: win.accent
+            }
+        }
+    }
+
+    Dialog {
+        id: dropConfirm
+        objectName: "dropConfirm"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: "Open another video?"
+        standardButtons: Dialog.Open | Dialog.Cancel
+        Label {
+            text: "Your current edit has unexported changes.\nOpen the dropped video and discard those changes?"
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: {
+            backend.load(win.pendingDropUrl);
+            win.pendingDropUrl = "";
+        }
+        onRejected: win.pendingDropUrl = ""
     }
 
     // --- subtle help toggle in the corner ---
