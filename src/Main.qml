@@ -50,6 +50,10 @@ ApplicationWindow {
         noticeText = text;
         noticeTimer.restart();
     }
+    function showLoadError(message) {
+        noticeTimer.stop();
+        noticeText = "Cannot open video: " + message;
+    }
     function openVideo() {
         backend.openVideoDialog();
     }
@@ -315,6 +319,7 @@ ApplicationWindow {
         source: backend.source
         videoOutput: videoOut
         audioOutput: win.audioOutput
+        onErrorOccurred: (error, errorString) => win.showLoadError(errorString)
 
         // Render the opening frame on load instead of showing black. Playback
         // starts muted and stops as soon as VideoOutput receives a frame.
@@ -579,7 +584,7 @@ ApplicationWindow {
                 Label {
                     width: parent.width
                     visible: win.noticeText === ""
-                    text: "omacut trims clips — it is not a video player.\nCtrl+O opens a file, or pass one on the command line."
+                    text: "Choose a video to trim.\nCtrl+O opens the file picker."
                     color: "#8a8a90"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -861,8 +866,7 @@ ApplicationWindow {
         function onLoadError(message) {
             // Keep the error on the empty screen until the next successful open
             // (infoChanged clears it). A timed notice would vanish into a dead end.
-            noticeTimer.stop();
-            win.noticeText = "Cannot open video: " + message;
+            win.showLoadError(message);
         }
     }
 }

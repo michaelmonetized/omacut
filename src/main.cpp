@@ -1,6 +1,7 @@
 // omacut — a dead-simple video length trimmer. Qt Quick (QML) UI, ffmpeg cuts.
 
 #include <QGuiApplication>
+#include <QDir>
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -37,12 +38,9 @@ int main(int argc, char *argv[]) {
         return -1;
 
     // Optionally open a file passed on the command line (path or file:// URI).
-    // Desktop Exec uses %u; some launchers still hand us a bare path.
     const QStringList args = app.arguments();
     if (args.size() > 1) {
-        const QUrl url = QUrl::fromUserInput(args.at(1), QString(), QUrl::AssumeLocalFile);
-        if (url.isValid() && url.isLocalFile())
-            backend.load(url);
+        backend.load(Backend::urlFromArgument(args.at(1), QDir::currentPath()));
     }
 
     return app.exec();
