@@ -23,15 +23,7 @@ ApplicationWindow {
     property bool helpVisible: false
     property url pendingDropUrl: ""
     property bool quitConfirmVisible: false
-    // Prefer live backend status while busy so a lingering notice can't hide
-    // export progress. Notices still win on the empty screen (load errors).
-    readonly property string statusText: {
-        if (backend.busy && backend.status !== "")
-            return backend.status
-        if (noticeText !== "")
-            return noticeText
-        return backend.status
-    }
+    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
 
     readonly property var timeline: backend.timeline
     // Clips spanning the whole source aren't dirty. Pending exports also
