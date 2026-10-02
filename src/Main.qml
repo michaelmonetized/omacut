@@ -633,7 +633,7 @@ ApplicationWindow {
                     height: 40
                     Label {
                         Layout.fillWidth: true
-                        text: win.fileName(modelData.path) + " · "
+                        text: modelData.path.substring(modelData.path.lastIndexOf('/') + 1) + " · "
                               + (modelData.state === "running" ? modelData.progress + "%"
                                  : modelData.state === "done" ? "Saved" : modelData.state)
                         color: modelData.state === "failed" ? win.accent : "#b8b8bc"

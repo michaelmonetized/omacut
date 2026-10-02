@@ -23,14 +23,25 @@ class FakeFilePicker : public FilePicker {
     Q_OBJECT
 
 public:
+    FakeFilePicker() {
+        connect(this, &FilePicker::openSelected, this, [this] { pending = false; });
+        connect(this, &FilePicker::exportSelected, this, [this] { pending = false; });
+        connect(this, &FilePicker::failed, this, [this] { pending = false; });
+    }
+
+    bool pending = false;
     int openCount = 0;
     int exportCount = 0;
     QUrl lastSuggestedUrl;
     QList<int> lastScaleHeights;
 
+    bool isPending() const override { return pending; }
     void openVideo() override { ++openCount; }
 
     void exportVideo(const QUrl &suggestedUrl, const QList<int> &scaleHeights) override {
+        if (pending)
+            return;
+        pending = true;
         ++exportCount;
         lastSuggestedUrl = suggestedUrl;
         lastScaleHeights = scaleHeights;
@@ -84,7 +95,7 @@ public:
     bool busy() const { return exporting; }
     QString status() const { return exporting ? QStringLiteral("Exporting 25%") : QString(); }
     int exportProgress() const { return exporting ? 25 : -1; }
-    QVariantList exportJobs() const { return {}; }
+    QVariantList exportJobs() const { return jobEntries; }
     Q_INVOKABLE void clearFinishedExports() {}
     Q_INVOKABLE void cancelExport(int) {}
     QString themeAccent() const { return QStringLiteral("#FFD60A"); }
@@ -114,6 +125,7 @@ public:
     }
 
     bool exporting = false;
+    QVariantList jobEntries;
     Timeline timeline;
     edit::Clips exportedClips;
     int openCount = 0;
@@ -196,6 +208,11 @@ private slots:
     void suggestedExportUrlAlwaysUsesMp4();
     void exportClipWritesMp4();
     void exportQueueKeepsSourceAndEditSnapshots();
+    void repeatedExportDialogKeepsOriginalSnapshot();
+    void exportRejectsAliasedPendingDestinations();
+    void exportPreservesDestinationCreatedWhileQueued_data();
+    void exportPreservesDestinationCreatedWhileQueued();
+    void qmlExportFilenamesPreserveLiteralPercentSigns();
     void exportCompletionDoesNotMarkReloadedSource();
     void exportRejectsConflictingPendingFiles();
     void exportCancellationPreservesDestinationAndContinuesQueue();
@@ -505,6 +522,101 @@ void BackendTests::exportQueueKeepsSourceAndEditSnapshots() {
     QVERIFY(!backend.timeline()->unexported());
     backend.clearFinishedExports();
     QVERIFY(backend.exportJobs().isEmpty());
+}
+
+void BackendTests::repeatedExportDialogKeepsOriginalSnapshot() {
+    const QString source = makeVideo(QStringLiteral("dialog-snapshot.mp4"), 3.0, false);
+    QVERIFY(!source.isEmpty());
+    ThumbProvider provider;
+    auto *picker = new FakeFilePicker;
+    Backend backend(&provider, picker);
+    QSignalSpy done(&backend, &Backend::exportDone);
+    QSignalSpy failed(&backend, &Backend::exportFailed);
+    QVERIFY(backend.load(QUrl::fromLocalFile(source)));
+    backend.timeline()->trimTo(2.0, false);
+    backend.exportDialog();
+    backend.timeline()->trimTo(1.0, false);
+    backend.exportDialog();
+    QCOMPARE(picker->exportCount, 1);
+    const QString out = m_dir.filePath(QStringLiteral("dialog-snapshot-export.mp4"));
+    emit picker->exportSelected(QUrl::fromLocalFile(out), 0);
+    QTRY_VERIFY_WITH_TIMEOUT(!backend.busy(), 20000);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(done.count(), 1);
+    const auto info = ffmpeg::probe(out);
+    QVERIFY(info.ok);
+    QVERIFY2(qAbs(info.duration - 2.0) < 0.15, qPrintable(QString::number(info.duration)));
+    QVERIFY(backend.timeline()->unexported());
+    backend.exportDialog();
+    QCOMPARE(picker->exportCount, 2);
+}
+
+void BackendTests::exportRejectsAliasedPendingDestinations() {
+    QTemporaryDir outputs;
+    QVERIFY(outputs.isValid());
+    QVERIFY(QDir(outputs.path()).mkdir(QStringLiteral("real")));
+    QVERIFY(QFile::link(outputs.filePath(QStringLiteral("real")),
+                        outputs.filePath(QStringLiteral("alias"))));
+    ThumbProvider provider;
+    Backend backend(&provider, new FakeFilePicker);
+    QSignalSpy failed(&backend, &Backend::exportFailed);
+    QVERIFY(backend.load(videoUrl()));
+    backend.exportClips(QUrl::fromLocalFile(outputs.filePath(QStringLiteral("real/out.mp4"))), edit::whole(1.0));
+    backend.exportClips(QUrl::fromLocalFile(outputs.filePath(QStringLiteral("alias/out.mp4"))), edit::whole(1.0));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(backend.exportJobs().size(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!backend.busy(), 20000);
+}
+
+void BackendTests::exportPreservesDestinationCreatedWhileQueued_data() {
+    QTest::addColumn<QString>("suffix");
+    QTest::newRow("selected-mp4") << QStringLiteral(".mp4");
+    QTest::newRow("forced-mp4") << QStringLiteral(".webm");
+}
+
+void BackendTests::exportPreservesDestinationCreatedWhileQueued() {
+    QFETCH(QString, suffix);
+    QTemporaryDir outputs;
+    QVERIFY(outputs.isValid());
+    ThumbProvider provider;
+    Backend backend(&provider, new FakeFilePicker);
+    QSignalSpy done(&backend, &Backend::exportDone);
+    QSignalSpy failed(&backend, &Backend::exportFailed);
+    QVERIFY(backend.load(videoUrl()));
+    backend.exportClips(QUrl::fromLocalFile(outputs.filePath(QStringLiteral("first.mp4"))), edit::whole(1.0));
+    backend.exportClips(QUrl::fromLocalFile(outputs.filePath(QStringLiteral("later") + suffix)), edit::whole(1.0));
+    QCOMPARE(backend.exportJobs()[1].toMap()["state"].toString(), QStringLiteral("queued"));
+    QFile destination(outputs.filePath(QStringLiteral("later.mp4")));
+    const QByteArray original("created after the save dialog closed");
+    QVERIFY(destination.open(QIODevice::WriteOnly));
+    QCOMPARE(destination.write(original), original.size());
+    destination.close();
+    QTRY_VERIFY_WITH_TIMEOUT(!backend.busy(), 20000);
+    QCOMPARE(done.count(), 1);
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(destination.open(QIODevice::ReadOnly));
+    QCOMPARE(destination.readAll(), original);
+    QVERIFY(QDir(outputs.path()).entryList({QStringLiteral("*.omacut-*.mp4")}).isEmpty());
+}
+
+void BackendTests::qmlExportFilenamesPreserveLiteralPercentSigns() {
+    ShortcutBackend backend({}, 0);
+    backend.jobEntries = {QVariantMap{{"id", 1}, {"path", "/tmp/100% %25.mp4"},
+                                    {"state", "done"}, {"progress", 100}, {"error", ""}}};
+    QmlHarness harness(backend);
+    auto *window = harness.window();
+    QVERIFY(window);
+    // ListView delegates belong to its visual tree, not the window's QObject tree.
+    auto hasFilename = [](auto &&self, QQuickItem *item) -> bool {
+        if (item->property("text").toString() == QStringLiteral("100% %25.mp4 · Saved"))
+            return true;
+        for (auto *child : item->childItems()) {
+            if (self(self, child))
+                return true;
+        }
+        return false;
+    };
+    QTRY_VERIFY(hasFilename(hasFilename, window->contentItem()));
 }
 
 void BackendTests::exportCompletionDoesNotMarkReloadedSource() {
@@ -1159,7 +1271,6 @@ void BackendTests::qmlQuitConfirmsUnexportedEdit() {
 }
 
 void BackendTests::timelineSplitsTrimsAndJoins() {
-    bool exporting = false;
     Timeline timeline;
     timeline.reset(10.0);
     QCOMPARE(timeline.clips(), edit::whole(10.0));
@@ -1191,7 +1302,6 @@ void BackendTests::timelineSplitsTrimsAndJoins() {
 }
 
 void BackendTests::timelineUndoesAGestureAsOneStep() {
-    bool exporting = false;
     Timeline timeline;
     timeline.reset(10.0);
     QVERIFY(!timeline.canUndo());
@@ -1218,7 +1328,6 @@ void BackendTests::timelineUndoesAGestureAsOneStep() {
 }
 
 void BackendTests::timelineTracksUnexportedCuts() {
-    bool exporting = false;
     Timeline timeline;
     timeline.reset(10.0);
     // Splits alone cut nothing, so there's nothing to lose.
@@ -1235,7 +1344,6 @@ void BackendTests::timelineTracksUnexportedCuts() {
 }
 
 void BackendTests::timelineAnswersWhereTimesFall() {
-    bool exporting = false;
     Timeline timeline;
     timeline.reset(20.0);
     timeline.split(5.0);
@@ -1261,7 +1369,6 @@ void BackendTests::timelineAnswersWhereTimesFall() {
 }
 
 void BackendTests::timelineEditsAtATime() {
-    bool exporting = false;
     Timeline timeline;
     timeline.reset(20.0);
     timeline.split(5.0);

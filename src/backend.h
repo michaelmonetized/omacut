@@ -114,6 +114,7 @@ private:
         ExportRequest request;
         QString outPath;
         QString tmpPath;
+        bool overwriteAllowed = false;
         int scaleHeight = 0;
         int progress = 0;
         QString state = QStringLiteral("queued");

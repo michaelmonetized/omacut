@@ -41,7 +41,23 @@ QString mp4PathFor(const QString &path) {
     return file.dir().filePath(baseName + QStringLiteral(".mp4"));
 }
 
-bool replaceWithTemp(const QString &tmpPath, const QString &outPath) {
+QString fileIdentity(const QString &path) {
+    const QFileInfo file(path);
+    const QString canonical = file.canonicalFilePath();
+    if (!canonical.isEmpty())
+        return canonical;
+    // A new destination has no canonical file path yet, but its parent can
+    // resolve symlinks so aliases still reserve the same pending output.
+    const QString directory = file.dir().canonicalPath();
+    return directory.isEmpty() ? QDir::cleanPath(file.absoluteFilePath())
+                               : QDir(directory).filePath(file.fileName());
+}
+
+bool replaceWithTemp(const QString &tmpPath, const QString &outPath, bool overwriteAllowed) {
+    // QFile::rename refuses an existing destination. Only replace a file that
+    // was already present at the exact path selected in the save dialog.
+    if (!overwriteAllowed)
+        return QFile::rename(tmpPath, outPath);
     const QByteArray tmpName = QFile::encodeName(tmpPath);
     const QByteArray outName = QFile::encodeName(outPath);
     return std::rename(tmpName.constData(), outName.constData()) == 0;
@@ -225,7 +241,7 @@ void Backend::openVideoDialog() {
 }
 
 void Backend::exportDialog() {
-    if (m_path.isEmpty() || !m_info.ok)
+    if (m_path.isEmpty() || !m_info.ok || m_filePicker->isPending())
         return;
 
     m_exportDialogRequest = currentExportRequest(m_timeline.clips());
@@ -383,10 +399,7 @@ void Backend::enqueueExport(const QUrl &dst, const ExportRequest &request, int s
         return;
     }
     const auto sameFile = [](const QString &a, const QString &b) {
-        const QFileInfo fa(a), fb(b);
-        const QString ca = fa.canonicalFilePath(), cb = fb.canonicalFilePath();
-        return fa.absoluteFilePath() == fb.absoluteFilePath()
-            || (!ca.isEmpty() && !cb.isEmpty() && ca == cb);
+        return fileIdentity(a) == fileIdentity(b);
     };
     for (const Job &job : m_exportJobs) {
         if (job->state != "queued" && job->state != "running" && job->state != "cancelling")
@@ -408,6 +421,7 @@ void Backend::enqueueExport(const QUrl &dst, const ExportRequest &request, int s
     job->id = m_nextExportId++;
     job->request = request;
     job->outPath = outPath;
+    job->overwriteAllowed = outPath == selectedPath && QFileInfo::exists(outPath);
     job->scaleHeight = scaleHeight;
     m_exportJobs.append(job);
     refreshExportState();
@@ -483,8 +497,11 @@ void Backend::startNextExport() {
         } else if (exitStatus != QProcess::NormalExit || code != 0) {
             const QString error = QString::fromUtf8(job->errorBuffer).trimmed();
             finishExport(job, QStringLiteral("failed"), error.isEmpty() ? QStringLiteral("ffmpeg trim failed.") : error);
-        } else if (!replaceWithTemp(job->tmpPath, job->outPath)) {
-            finishExport(job, QStringLiteral("failed"), QStringLiteral("Could not write the exported file."));
+        } else if (!replaceWithTemp(job->tmpPath, job->outPath, job->overwriteAllowed)) {
+            finishExport(job, QStringLiteral("failed"),
+                         !job->overwriteAllowed && QFileInfo::exists(job->outPath)
+                         ? QStringLiteral("The destination was created after this export was queued. Choose another destination.")
+                         : QStringLiteral("Could not write the exported file."));
         } else {
             finishExport(job, QStringLiteral("done"));
         }
