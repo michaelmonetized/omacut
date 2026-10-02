@@ -21,7 +21,15 @@ ApplicationWindow {
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
-    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
+    // Prefer live backend status while busy so a lingering notice can't hide
+    // export progress. Notices still win on the empty screen (load errors).
+    readonly property string statusText: {
+        if (backend.busy && backend.status !== "")
+            return backend.status
+        if (noticeText !== "")
+            return noticeText
+        return backend.status
+    }
 
     readonly property var timeline: backend.timeline
     // Quitting only warns about unexported cuts. Clips spanning the whole
@@ -41,6 +49,10 @@ ApplicationWindow {
     function showNotice(text) {
         noticeText = text;
         noticeTimer.restart();
+    }
+    function showLoadError(message) {
+        noticeTimer.stop();
+        noticeText = "Cannot open video: " + message;
     }
     function openVideo() {
         backend.openVideoDialog();
@@ -307,6 +319,7 @@ ApplicationWindow {
         source: backend.source
         videoOutput: videoOut
         audioOutput: win.audioOutput
+        onErrorOccurred: (error, errorString) => win.showLoadError(errorString)
 
         // Render the opening frame on load instead of showing black. Playback
         // starts muted and stops as soon as VideoOutput receives a frame.
@@ -518,32 +531,66 @@ ApplicationWindow {
                 }
             }
 
+            // Empty state / load failure: click anywhere to pick a file.
+            // With a video loaded, click toggles playback instead of re-opening.
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: openVideo()
+                onClicked: {
+                    if (win.hasVideo)
+                        togglePlay()
+                    else
+                        openVideo()
+                }
             }
 
-            Button {
-                id: openVideoButton
+            Column {
                 anchors.centerIn: parent
+                spacing: 14
                 visible: !win.hasVideo
-                text: "Open a video"
-                highlighted: true
-                focusPolicy: Qt.NoFocus
-                font.pixelSize: 18
-                Material.foreground: win.accentForeground
-                HoverHandler {
-                    cursorShape: Qt.PointingHandCursor
+                width: Math.min(parent.width - 48, 420)
+
+                Button {
+                    id: openVideoButton
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Open a video"
+                    highlighted: true
+                    focusPolicy: Qt.NoFocus
+                    font.pixelSize: 18
+                    Material.foreground: win.accentForeground
+                    HoverHandler {
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    contentItem: Label {
+                        text: openVideoButton.text
+                        font: openVideoButton.font
+                        color: win.accentForeground
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: openVideo()
                 }
-                contentItem: Label {
-                    text: openVideoButton.text
-                    font: openVideoButton.font
-                    color: win.accentForeground
+
+                Label {
+                    width: parent.width
+                    visible: win.noticeText !== ""
+                    text: win.noticeText
+                    color: win.accent
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
                 }
-                onClicked: openVideo()
+
+                Label {
+                    width: parent.width
+                    visible: win.noticeText === ""
+                    text: "Choose a video to trim.\nCtrl+O opens the file picker."
+                    color: "#8a8a90"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    lineHeight: 1.25
+                }
             }
         }
 
@@ -586,7 +633,7 @@ ApplicationWindow {
 
         // --- status line ---
         Item {
-            visible: win.hasVideo
+            visible: win.hasVideo || win.statusText !== ""
             Layout.fillWidth: true
             Layout.preferredHeight: 26
 
@@ -817,7 +864,9 @@ ApplicationWindow {
             win.showNotice("Export failed: " + message);
         }
         function onLoadError(message) {
-            win.showNotice("Cannot open video: " + message);
+            // Keep the error on the empty screen until the next successful open
+            // (infoChanged clears it). A timed notice would vanish into a dead end.
+            win.showLoadError(message);
         }
     }
 }
