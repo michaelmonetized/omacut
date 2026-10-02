@@ -21,18 +21,12 @@ ApplicationWindow {
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
-    // Live export status beats a lingering notice so "Exporting N%" stays visible.
-    readonly property string statusText: {
-        if (backend.busy && backend.status !== "")
-            return backend.status
-        if (noticeText !== "")
-            return noticeText
-        return backend.status
-    }
+    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
+    property bool exportsExpanded: true
 
     readonly property var timeline: backend.timeline
-    // Quitting only warns about unexported cuts. Clips spanning the whole
-    // video are never dirty — that's just the source.
+    // Clips spanning the whole source aren't dirty. Pending exports also
+    // require confirmation before quitting, since closing cancels the queue.
     readonly property bool unexported: hasVideo && timeline.unexported
     // Editing shortcuts go quiet while a dialog is up or a handle is dragged.
     readonly property bool editing: hasVideo && backend.duration > 0 && !quitConfirmVisible && !editBar.interacting
@@ -53,7 +47,7 @@ ApplicationWindow {
         backend.openVideoDialog();
     }
     function exportVideo() {
-        if (!win.hasVideo || backend.duration <= 0 || backend.busy)
+        if (!win.hasVideo || backend.duration <= 0)
             return;
         player.pause();
         backend.exportDialog();
@@ -96,7 +90,7 @@ ApplicationWindow {
     }
     property bool quitting: false
     function requestQuit() {
-        if (unexported) {
+        if (unexported || backend.busy) {
             if (player.playbackState === MediaPlayer.PlayingState)
                 player.pause();
             quitConfirmVisible = true;
@@ -127,7 +121,7 @@ ApplicationWindow {
     onClosing: (close) => {
         if (win.quitting)
             return;
-        if (win.unexported) {
+        if (win.unexported || backend.busy) {
             close.accepted = false;
             if (player.playbackState === MediaPlayer.PlayingState)
                 player.pause();
@@ -266,7 +260,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+S"
         context: Qt.ApplicationShortcut
-        enabled: win.hasVideo && backend.duration > 0 && !backend.busy
+        enabled: win.hasVideo && backend.duration > 0
         onActivated: {
             win.quitConfirmVisible = false;
             exportVideo();
@@ -586,8 +580,77 @@ ApplicationWindow {
                 Layout.preferredHeight: 44
                 iconName: "download"
                 tipText: "Export"
-                enabled: backend.duration > 0 && !backend.busy
+                enabled: backend.duration > 0
                 onClicked: exportVideo()
+            }
+        }
+
+        // Exports stay visible without covering the preview or blocking edits.
+        ColumnLayout {
+            visible: backend.exportJobs.length > 0
+            Layout.fillWidth: true
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    Layout.fillWidth: true
+                    text: backend.busy ? "Exports · " + backend.status : "Exports"
+                    color: "#d6d6da"
+                    font.pixelSize: 13
+                }
+                Button {
+                    text: "Clear finished"
+                    flat: true
+                    focusPolicy: Qt.NoFocus
+                    onClicked: backend.clearFinishedExports()
+                }
+                Button {
+                    text: win.exportsExpanded ? "Hide details" : "Show details"
+                    flat: true
+                    focusPolicy: Qt.NoFocus
+                    onClicked: win.exportsExpanded = !win.exportsExpanded
+                }
+            }
+            ProgressBar {
+                visible: backend.busy
+                Layout.fillWidth: true
+                from: 0
+                to: 100
+                value: Math.max(0, backend.exportProgress)
+            }
+            ListView {
+                objectName: "exportList"
+                visible: win.exportsExpanded
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 120)
+                clip: true
+                model: backend.exportJobs
+                ScrollBar.vertical: ScrollBar {}
+                delegate: RowLayout {
+                    required property var modelData
+                    width: ListView.view.width
+                    height: 40
+                    Label {
+                        Layout.fillWidth: true
+                        text: win.fileName(modelData.path) + " · "
+                              + (modelData.state === "running" ? modelData.progress + "%"
+                                 : modelData.state === "done" ? "Saved" : modelData.state)
+                        color: modelData.state === "failed" ? win.accent : "#b8b8bc"
+                        elide: Text.ElideMiddle
+                        font.pixelSize: 12
+                        ToolTip.visible: exportHover.hovered
+                        ToolTip.text: modelData.path + (modelData.error ? "\n" + modelData.error : "")
+                        HoverHandler { id: exportHover }
+                    }
+                    Button {
+                        visible: modelData.state === "queued" || modelData.state === "running"
+                        text: "Cancel"
+                        flat: true
+                        focusPolicy: Qt.NoFocus
+                        onClicked: backend.cancelExport(modelData.id)
+                    }
+                }
             }
         }
 
@@ -619,66 +682,6 @@ ApplicationWindow {
                 color: "#d6d6da"
                 font.pixelSize: 13
                 font.family: "monospace"
-            }
-        }
-    }
-
-    // --- export progress overlay ---
-    Rectangle {
-        visible: backend.busy
-        anchors.fill: parent
-        color: "#000000cc"
-        z: 10
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: Math.min(parent.width - 64, 360)
-            height: exportColumn.height + 40
-            radius: 12
-            color: "#1c1c1e"
-
-            Column {
-                id: exportColumn
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - 40
-                spacing: 14
-
-                Label {
-                    width: parent.width
-                    text: backend.status !== "" ? backend.status : "Exporting…"
-                    color: "white"
-                    font.pixelSize: 15
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Rectangle {
-                    width: parent.width
-                    height: 8
-                    radius: 4
-                    color: "#2c2c2f"
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: parent.width * Math.max(0, Math.min(backend.exportProgress, 100)) / 100
-                        radius: 4
-                        color: win.accent
-                        visible: backend.exportProgress >= 0
-                    }
-                }
-
-                Label {
-                    width: parent.width
-                    visible: backend.exportProgress >= 0
-                    text: backend.exportProgress + "%"
-                    color: "#b8b8bc"
-                    font.pixelSize: 13
-                    font.family: "monospace"
-                    horizontalAlignment: Text.AlignHCenter
-                }
             }
         }
     }
@@ -811,14 +814,16 @@ ApplicationWindow {
                 spacing: 8
 
                 Label {
-                    text: "Unexported edit"
+                    text: backend.busy ? "Exports are still running" : "Unexported edit"
                     color: "white"
                     font.pixelSize: 16
                     font.weight: Font.DemiBold
                 }
 
                 Label {
-                    text: "Your edit hasn't been exported. Quit anyway?"
+                    text: backend.busy ? "Quitting cancels running and queued exports."
+                                      + (win.unexported ? "\nYour current edit also has unexported changes." : "")
+                                      : "Your edit hasn't been exported. Quit anyway?"
                     color: "#d6d6da"
                     font.pixelSize: 13
                     bottomPadding: 12
@@ -839,7 +844,7 @@ ApplicationWindow {
                     }
                     DialogButton {
                         id: quitQuitButton
-                        text: "Quit"
+                        text: backend.busy ? "Cancel exports and quit" : "Quit"
                         KeyNavigation.left: quitCancelButton
                         KeyNavigation.right: quitExportButton
                         KeyNavigation.tab: quitExportButton
@@ -848,7 +853,7 @@ ApplicationWindow {
                     }
                     DialogButton {
                         id: quitExportButton
-                        text: "Export"
+                        text: backend.busy ? "Keep editing" : "Export"
                         primary: true
                         KeyNavigation.left: quitQuitButton
                         KeyNavigation.right: quitCancelButton
@@ -856,7 +861,8 @@ ApplicationWindow {
                         KeyNavigation.backtab: quitQuitButton
                         onClicked: {
                             win.quitConfirmVisible = false;
-                            exportVideo();
+                            if (!backend.busy)
+                                exportVideo();
                         }
                     }
                 }

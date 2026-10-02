@@ -7,6 +7,8 @@
 #include <QTimer>
 #include <QUrl>
 #include <QVector>
+#include <QVariantList>
+#include <memory>
 
 #include "ffmpeg.h"
 #include "timeline.h"
@@ -14,6 +16,7 @@
 class ThumbProvider;
 class FilePicker;
 class ThumbWorker;
+class QProcess;
 
 // The bridge between QML and the ffmpeg/ffprobe layer. Holds the currently
 // loaded video's info and drives thumbnail generation and export.
@@ -28,6 +31,7 @@ class Backend : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     // 0–100 while an export is running; -1 when idle. Drives the progress bar.
     Q_PROPERTY(int exportProgress READ exportProgress NOTIFY exportProgressChanged)
+    Q_PROPERTY(QVariantList exportJobs READ exportJobs NOTIFY exportJobsChanged)
     Q_PROPERTY(QString themeAccent READ themeAccent NOTIFY themeAccentChanged)
     Q_PROPERTY(QString themeAccentForeground READ themeAccentForeground NOTIFY themeAccentChanged)
     Q_PROPERTY(QObject *timeline READ timeline CONSTANT)
@@ -44,8 +48,9 @@ public:
     int thumbReadyCount() const { return m_thumbReadyCount; }
     int thumbRevision() const { return m_thumbRevision; }
     bool busy() const { return m_busy; }
-    QString status() const { return m_status; }
+    QString status() const;
     int exportProgress() const { return m_exportProgress; }
+    QVariantList exportJobs() const;
     QString themeAccent() const { return m_themeAccent; }
     QString themeAccentForeground() const;
     Timeline *timeline() { return &m_timeline; }
@@ -64,6 +69,8 @@ public:
     Q_INVOKABLE void openVideoDialog();
     // Exports the clips as they are when the dialog opens.
     Q_INVOKABLE void exportDialog();
+    Q_INVOKABLE void cancelExport(int id);
+    Q_INVOKABLE void clearFinishedExports();
 
     // Suggested "<name>_trimmed.mp4" target next to the source.
     Q_INVOKABLE QUrl suggestedExportUrl() const;
@@ -86,6 +93,7 @@ signals:
     void busyChanged();
     void statusChanged();
     void exportProgressChanged();
+    void exportJobsChanged();
     void themeAccentChanged();
     void exportDone(const QString &path);
     void exportFailed(const QString &message);
@@ -95,7 +103,30 @@ private:
     void setBusy(bool busy);
     void setStatus(const QString &status);
     void setExportProgress(int percent);
-    void failExport(const QString &tmpPath, const QString &message);
+    struct ExportRequest {
+        QString sourcePath;
+        ffmpeg::VideoInfo info;
+        edit::Clips clips;
+        quint64 sourceRevision = 0;
+    };
+    struct ExportJob {
+        int id = 0;
+        ExportRequest request;
+        QString outPath;
+        QString tmpPath;
+        int scaleHeight = 0;
+        int progress = 0;
+        QString state = QStringLiteral("queued");
+        QString error;
+        QByteArray progressBuffer;
+        QByteArray errorBuffer;
+    };
+    using Job = std::shared_ptr<ExportJob>;
+    ExportRequest currentExportRequest(const edit::Clips &clips) const;
+    void enqueueExport(const QUrl &dst, const ExportRequest &request, int scaleHeight);
+    void startNextExport();
+    void finishExport(const Job &job, const QString &state, const QString &error = {});
+    void refreshExportState();
     void startThumbs();
     void stopThumbs();
     void revealNextThumb();
@@ -107,7 +138,13 @@ private:
     FilePicker *m_filePicker;
     ThumbWorker *m_thumbWorker = nullptr;
     Timeline m_timeline;
-    edit::Clips m_exportDialogClips;
+    ExportRequest m_exportDialogRequest;
+    QVector<Job> m_exportJobs;
+    Job m_activeExport;
+    QProcess *m_exportProcess = nullptr;
+    quint64 m_sourceRevision = 0;
+    int m_nextExportId = 1;
+    bool m_shuttingDown = false;
     ffmpeg::VideoInfo m_info;
     QString m_path;
     QUrl m_source;
