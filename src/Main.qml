@@ -22,7 +22,7 @@ ApplicationWindow {
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
-    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
+    readonly property string statusText: noticeText !== "" ? noticeText : (backend.busy ? "" : backend.status)
 
     readonly property var timeline: backend.timeline
     // Clips spanning the whole source aren't dirty. Pending exports also
