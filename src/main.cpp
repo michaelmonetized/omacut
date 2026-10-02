@@ -36,10 +36,14 @@ int main(int argc, char *argv[]) {
     if (engine.rootObjects().isEmpty())
         return -1;
 
-    // Optionally open a file passed on the command line.
+    // Optionally open a file passed on the command line (path or file:// URI).
+    // Desktop Exec uses %u; some launchers still hand us a bare path.
     const QStringList args = app.arguments();
-    if (args.size() > 1)
-        backend.load(QUrl::fromLocalFile(args.at(1)));
+    if (args.size() > 1) {
+        const QUrl url = QUrl::fromUserInput(args.at(1), QString(), QUrl::AssumeLocalFile);
+        if (url.isValid() && url.isLocalFile())
+            backend.load(url);
+    }
 
     return app.exec();
 }
