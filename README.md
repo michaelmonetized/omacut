@@ -82,8 +82,10 @@ The release workflow builds and tests each architecture in a Debian 13 container
 on a native Ubuntu 24.04 runner. Branches and pull requests produce downloadable workflow
 artifacts. Pushing a `v*` tag publishes both binaries only after both test jobs
 pass; tags containing a hyphen publish as prereleases. A failed run can be
-rerun before publication. To package an already built binary locally, run
-`./bin/release-artifact <version-or-tag>`.
+rerun before publication; rebuilt artifacts replace earlier attempts. To package
+an already built binary locally, run `./bin/release-artifact <version-or-tag>`.
+The packager requires GNU binutils and checks that the binary's ELF architecture
+matches the host before creating an archive.
 
 ## Test
 

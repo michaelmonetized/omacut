@@ -64,6 +64,7 @@ jobs:
           QT_QUICK_BACKEND: software
         run: |
           ./bin/test
+          ./tests/release_artifact_tests.sh
           desktop-file-validate pkgbuild/omacut.desktop
       - name: Package binary and checksum
         env:
@@ -83,6 +84,7 @@ jobs:
           name: omacut-linux-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   publish:
