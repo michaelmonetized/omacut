@@ -82,7 +82,7 @@ public:
     int thumbReadyCount() const { return 0; }
     int thumbRevision() const { return 0; }
     bool busy() const { return exporting; }
-    QString status() const { return {}; }
+    QString status() const { return exporting ? QStringLiteral("Exporting 25%") : QString(); }
     int exportProgress() const { return exporting ? 25 : -1; }
     QVariantList exportJobs() const { return {}; }
     Q_INVOKABLE void clearFinishedExports() {}
@@ -615,6 +615,9 @@ void BackendTests::qmlAllowsEditingAndExportingWhileBusy() {
     QCOMPARE(backend.timeline.clips().size(), 2);
     QTest::keyClick(window, Qt::Key_S, Qt::ControlModifier);
     QCOMPARE(backend.exportCount, 1);
+    emit backend.loadError(QStringLiteral("Missing file"));
+    QCOMPARE(window->property("statusText").toString(),
+             QStringLiteral("Cannot open video: Missing file"));
     QTest::keyClick(window, Qt::Key_Q);
     QVERIFY(window->property("quitConfirmVisible").toBool());
     auto *keepEditing = dialogButton(window, QStringLiteral("Keep editing"));
