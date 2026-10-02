@@ -18,11 +18,11 @@ ApplicationWindow {
     readonly property color accentForeground: backend.themeAccentForeground
     readonly property bool audioOutputReady: audioOutput !== null
     property var audioOutput: null
+    property bool exportsExpanded: true
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
     readonly property string statusText: noticeText !== "" ? noticeText : backend.status
-    property bool exportsExpanded: true
 
     readonly property var timeline: backend.timeline
     // Clips spanning the whole source aren't dirty. Pending exports also
