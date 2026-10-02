@@ -21,7 +21,14 @@ ApplicationWindow {
     property string noticeText: ""
     property bool helpVisible: false
     property bool quitConfirmVisible: false
-    readonly property string statusText: noticeText !== "" ? noticeText : backend.status
+    // Live export status beats a lingering notice so "Exporting N%" stays visible.
+    readonly property string statusText: {
+        if (backend.busy && backend.status !== "")
+            return backend.status
+        if (noticeText !== "")
+            return noticeText
+        return backend.status
+    }
 
     readonly property var timeline: backend.timeline
     // Quitting only warns about unexported cuts. Clips spanning the whole
@@ -612,6 +619,66 @@ ApplicationWindow {
                 color: "#d6d6da"
                 font.pixelSize: 13
                 font.family: "monospace"
+            }
+        }
+    }
+
+    // --- export progress overlay ---
+    Rectangle {
+        visible: backend.busy
+        anchors.fill: parent
+        color: "#000000cc"
+        z: 10
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 64, 360)
+            height: exportColumn.height + 40
+            radius: 12
+            color: "#1c1c1e"
+
+            Column {
+                id: exportColumn
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - 40
+                spacing: 14
+
+                Label {
+                    width: parent.width
+                    text: backend.status !== "" ? backend.status : "Exporting…"
+                    color: "white"
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 8
+                    radius: 4
+                    color: "#2c2c2f"
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: parent.width * Math.max(0, Math.min(backend.exportProgress, 100)) / 100
+                        radius: 4
+                        color: win.accent
+                        visible: backend.exportProgress >= 0
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    visible: backend.exportProgress >= 0
+                    text: backend.exportProgress + "%"
+                    color: "#b8b8bc"
+                    font.pixelSize: 13
+                    font.family: "monospace"
+                    horizontalAlignment: Text.AlignHCenter
+                }
             }
         }
     }

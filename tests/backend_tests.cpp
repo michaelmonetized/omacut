@@ -64,6 +64,7 @@ class ShortcutBackend : public QObject {
     Q_PROPERTY(int thumbRevision READ thumbRevision NOTIFY thumbsChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    Q_PROPERTY(int exportProgress READ exportProgress NOTIFY exportProgressChanged)
     Q_PROPERTY(QString themeAccent READ themeAccent NOTIFY themeAccentChanged)
     Q_PROPERTY(QString themeAccentForeground READ themeAccentForeground NOTIFY themeAccentChanged)
     Q_PROPERTY(QObject *timeline READ timelineObject CONSTANT)
@@ -81,6 +82,7 @@ public:
     int thumbRevision() const { return 0; }
     bool busy() const { return false; }
     QString status() const { return {}; }
+    int exportProgress() const { return -1; }
     QString themeAccent() const { return QStringLiteral("#FFD60A"); }
     QString themeAccentForeground() const { return QStringLiteral("black"); }
     QObject *timelineObject() { return &timeline; }
@@ -120,6 +122,7 @@ signals:
     void thumbsChanged();
     void busyChanged();
     void statusChanged();
+    void exportProgressChanged();
     void themeAccentChanged();
     void exportDone(const QString &path);
     void exportFailed(const QString &message);
@@ -427,6 +430,7 @@ void BackendTests::exportClipWritesMp4() {
     backend.exportClips(QUrl::fromLocalFile(selectedPath), edit::whole(1.0));
 
     QVERIFY(backend.busy());
+    QCOMPARE(backend.exportProgress(), 0);
     QCOMPARE(backend.status(), QStringLiteral("Exporting 0%"));
     QTRY_VERIFY_WITH_TIMEOUT(doneSpy.count() + failedSpy.count() > 0, 20000);
 
@@ -435,6 +439,7 @@ void BackendTests::exportClipWritesMp4() {
     // ffmpeg's -progress stream drove the status to a completed percentage.
     QVERIFY2(statuses.contains(QStringLiteral("Exporting 100%")),
              qPrintable(statuses.join(QStringLiteral(" | "))));
+    QCOMPARE(backend.exportProgress(), -1);
     QCOMPARE(doneSpy.count(), 1);
     QCOMPARE(doneSpy.first().at(0).toString(), mp4Path);
     QVERIFY(!backend.busy());

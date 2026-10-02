@@ -26,6 +26,8 @@ class Backend : public QObject {
     Q_PROPERTY(int thumbRevision READ thumbRevision NOTIFY thumbsChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    // 0–100 while an export is running; -1 when idle. Drives the progress bar.
+    Q_PROPERTY(int exportProgress READ exportProgress NOTIFY exportProgressChanged)
     Q_PROPERTY(QString themeAccent READ themeAccent NOTIFY themeAccentChanged)
     Q_PROPERTY(QString themeAccentForeground READ themeAccentForeground NOTIFY themeAccentChanged)
     Q_PROPERTY(QObject *timeline READ timeline CONSTANT)
@@ -43,6 +45,7 @@ public:
     int thumbRevision() const { return m_thumbRevision; }
     bool busy() const { return m_busy; }
     QString status() const { return m_status; }
+    int exportProgress() const { return m_exportProgress; }
     QString themeAccent() const { return m_themeAccent; }
     QString themeAccentForeground() const;
     Timeline *timeline() { return &m_timeline; }
@@ -82,6 +85,7 @@ signals:
     void thumbsChanged();
     void busyChanged();
     void statusChanged();
+    void exportProgressChanged();
     void themeAccentChanged();
     void exportDone(const QString &path);
     void exportFailed(const QString &message);
@@ -90,6 +94,7 @@ signals:
 private:
     void setBusy(bool busy);
     void setStatus(const QString &status);
+    void setExportProgress(int percent);
     void failExport(const QString &tmpPath, const QString &message);
     void startThumbs();
     void stopThumbs();
@@ -117,6 +122,7 @@ private:
     bool m_thumbWorkerDone = false;
     bool m_busy = false;
     QString m_status;
+    int m_exportProgress = -1;
     QString m_themeAccent;
     QTimer m_thumbRevealTimer;
     QFileSystemWatcher m_themeWatcher;

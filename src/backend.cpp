@@ -96,6 +96,13 @@ void Backend::setStatus(const QString &status) {
     emit statusChanged();
 }
 
+void Backend::setExportProgress(int percent) {
+    if (m_exportProgress == percent)
+        return;
+    m_exportProgress = percent;
+    emit exportProgressChanged();
+}
+
 QString Backend::accentFromColorsFile(const QString &path, const QString &fallback) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
@@ -346,6 +353,7 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
     }
 
     setBusy(true);
+    setExportProgress(0);
     setStatus(QStringLiteral("Exporting 0%"));
 
     // Encode to a sibling temp file and atomically replace the target only after
@@ -374,6 +382,7 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
                     if (!ok)
                         continue;
                     const int percent = qBound(0, qRound(outSecs / clipLen * 100.0), 100);
+                    setExportProgress(percent);
                     setStatus(QStringLiteral("Exporting %1%").arg(percent));
                 }
             });
@@ -394,6 +403,7 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
                     return;
                 }
                 setBusy(false);
+                setExportProgress(-1);
                 setStatus(QString());
                 m_timeline.markExported(clips);
                 emit exportDone(outPath);
@@ -412,6 +422,7 @@ void Backend::exportClips(const QUrl &dst, const edit::Clips &clips, int scaleHe
 
 void Backend::failExport(const QString &tmpPath, const QString &message) {
     setBusy(false);
+    setExportProgress(-1);
     setStatus(QString());
     QFile::remove(tmpPath);
     emit exportFailed(message);
